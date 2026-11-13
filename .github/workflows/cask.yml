@@ -25,6 +25,13 @@ jobs:
       - name: Tap this checkout
         run: |
           brew tap agentmuxai/tap "$GITHUB_WORKSPACE"
+      - name: What a user sees before trusting the tap (informational)
+        continue-on-error: true
+        run: |
+          brew install --cask agentmuxai/tap/agentmux 2>&1 | tail -8
+          brew uninstall --cask agentmuxai/tap/agentmux 2>&1 | tail -2 || true
+      - name: Trust this tap (our own checkout)
+        run: brew trust agentmuxai/tap
       - name: Style
         run: brew style agentmuxai/tap/agentmux
       - name: Audit
