@@ -1,0 +1,31 @@
+name: cask
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cask:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plain ASCII, unix line ends
+        run: |
+          if grep -nP '[^\x0a\x20-\x7e]' Casks/agentmux.rb; then echo "non-ASCII or CR in the cask"; exit 1; fi
+      - name: Tap this checkout
+        run: |
+          brew tap agentmuxai/tap "$GITHUB_WORKSPACE"
+      - name: Style
+        run: brew style agentmuxai/tap/agentmux
+      - name: Audit
+        run: brew audit --cask --strict --online agentmuxai/tap/agentmux
+      - name: Install, check, uninstall
+        run: |
+          brew install --cask agentmuxai/tap/agentmux
+          test -d /Applications/AgentMux.app
+          brew uninstall --cask agentmuxai/tap/agentmux
+          test ! -d /Applications/AgentMux.app
