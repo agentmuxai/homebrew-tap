@@ -1,0 +1,81 @@
+name: bump
+
+# Keeps Casks/agentmux.rb on the latest AgentMux release. Hourly, and on demand.
+# It pulls: it uses only this repository's own GITHUB_TOKEN (no secret from agentmuxai/agentmux), reads the
+# release's signed manifest, and checks the envelope's Ed25519 signature against update-keys.json (pinned
+# here, a copy of the keys the app pins) before it writes the new version and hash into the cask.
+# It opens a pull request; the "cask" workflow is started on that branch, and the pull request merges
+# itself when the required checks pass.
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is there a newer release?
+        id: rel
+        run: |
+          tag="$(gh api repos/agentmuxai/agentmux/releases/latest --jq .tag_name)"
+          case "$tag" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "::error::unexpected tag '$tag'"; exit 1 ;; esac
+          ver="${tag#v}"
+          cur="$(sed -n 's/^  version "\(.*\)"$/\1/p' Casks/agentmux.rb)"
+          newest="$(printf '%s\n%s\n' "$cur" "$ver" | sort -V | tail -n 1)"
+          if [ "$cur" = "$ver" ] || [ "$newest" != "$ver" ]; then
+            echo "The cask is at $cur and the latest release is $ver: nothing to do."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -n "$(gh pr list --head "bump-$ver" --state open --json number --jq '.[].number')" ]; then
+            echo "A pull request for $ver is already open."
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "bump=true" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+      - name: Render the cask from the signed release
+        if: steps.rel.outputs.bump == 'true'
+        run: |
+          mkdir release
+          gh release download "${{ steps.rel.outputs.tag }}" -R agentmuxai/agentmux -D release \
+            -p "AgentMux-${{ steps.rel.outputs.ver }}-manifest.json" \
+            -p "AgentMux-${{ steps.rel.outputs.ver }}-envelope.json" \
+            -p "AgentMux-${{ steps.rel.outputs.ver }}-envelope.json.sig"
+          node scripts/render-cask.mjs --signed \
+            "release/AgentMux-${{ steps.rel.outputs.ver }}-manifest.json" \
+            "release/AgentMux-${{ steps.rel.outputs.ver }}-envelope.json" \
+            "release/AgentMux-${{ steps.rel.outputs.ver }}-envelope.json.sig" \
+            update-keys.json > Casks/agentmux.rb.new
+          mv Casks/agentmux.rb.new Casks/agentmux.rb
+      - name: Open the pull request and start its checks
+        if: steps.rel.outputs.bump == 'true'
+        run: |
+          ver="${{ steps.rel.outputs.ver }}"
+          branch="bump-$ver"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add Casks/agentmux.rb
+          git commit -m "AgentMux $ver"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" --title "AgentMux $ver" \
+            --body "The cask for AgentMux $ver, rendered from the release's signed manifest (signature checked against update-keys.json)."
+          # A push made with GITHUB_TOKEN starts no workflow, but a dispatch does.
+          gh workflow run cask.yml --ref "$branch"
+          gh pr merge "$branch" --auto --squash
