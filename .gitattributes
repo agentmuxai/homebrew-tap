@@ -1,0 +1,4 @@
+Casks/*.rb text eol=lf
+scripts/*.mjs text eol=lf
+.github/workflows/*.yml text eol=lf
+update-keys.json text eol=lf

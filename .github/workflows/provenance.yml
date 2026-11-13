@@ -1,0 +1,85 @@
+name: provenance
+
+# The required check that nothing but a signed release's cask can change what the tap installs. It runs from
+# MAIN, so the pull request cannot change the rule that judges it: main's renderer, main's pinned
+# update-keys.json. The pull request's cask is fetched as plain data and compared; nothing from the pull
+# request is checked out or run, and the job has no secret and read-only permissions.
+#
+# The check judges one commit, the one it reports on: the event's head commit, or on a dispatch the commit
+# the run is attached to. It fails when the pull request's head is any other commit, so a green result can
+# never describe a commit it did not read.
+#
+# A pull request may change Casks/agentmux.rb and a short list of build and description files, and nothing
+# else (scripts/provenance.mjs, classifyPaths). One that changes the cask must carry exactly what main renders
+# from the signed release the cask names, at a version not lower than main's. A branch named bump-* may
+# change nothing but the cask.
+#
+# pull_request_target covers every pull request opened by a person. A pull request opened by bump.yml's
+# GITHUB_TOKEN starts no workflow, so bump.yml dispatches this one (the pr input) on the bump branch.
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: provenance-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number || inputs.pr }}
+      REPO: ${{ github.repository }}
+      # The commit this run judges: the event's head commit, else the commit a dispatch is attached to.
+      JUDGED: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Prove the cask
+        run: |
+          set -euo pipefail
+          [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::the pull request number is not a number"; exit 1; }
+          [[ "$JUDGED" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::unexpected commit to judge"; exit 1; }
+          pr_head() { gh api "repos/$REPO/pulls/$PR" --jq '.head.sha'; }
+          IFS=$'\t' read -r head_sha head_repo head_ref < <(gh api "repos/$REPO/pulls/$PR" --jq '[.head.sha, .head.repo.full_name, .head.ref] | @tsv')
+          [[ "$head_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::unexpected head repository"; exit 1; }
+          if [ "$head_sha" != "$JUDGED" ]; then
+            echo "::error::this run judges ${JUDGED:0:9}, but the pull request's head is now ${head_sha:0:9}"
+            exit 1
+          fi
+          gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | [.status, .filename, (.previous_filename // "")] | @tsv' > "$RUNNER_TEMP/files.tsv"
+          bump=""
+          if [[ "$head_ref" =~ ^bump- ]]; then bump="--bump"; fi
+          kind="$(node scripts/provenance.mjs paths $bump "$RUNNER_TEMP/files.tsv")"
+          if [ "$kind" = "nocask" ]; then
+            [ "$(pr_head)" = "$JUDGED" ] || { echo "::error::the pull request moved while it was being read"; exit 1; }
+            echo "The pull request does not change the cask: nothing to prove."
+            exit 0
+          fi
+          # The pull request's cask at the judged commit, as data. Never run, never sourced.
+          gh api -H "Accept: application/vnd.github.raw" "repos/$head_repo/contents/Casks/agentmux.rb?ref=$JUDGED" > "$RUNNER_TEMP/pr-cask.rb"
+          [ "$(wc -c < "$RUNNER_TEMP/pr-cask.rb")" -lt 5000 ] || { echo "::error::the cask is far larger than a cask should be"; exit 1; }
+          ver="$(node scripts/provenance.mjs version "$RUNNER_TEMP/pr-cask.rb")"
+          mkdir "$RUNNER_TEMP/release"
+          gh release download "v$ver" -R agentmuxai/agentmux -D "$RUNNER_TEMP/release" \
+            -p "AgentMux-$ver-manifest.json" \
+            -p "AgentMux-$ver-envelope.json" \
+            -p "AgentMux-$ver-envelope.json.sig"
+          node scripts/provenance.mjs check "$RUNNER_TEMP/pr-cask.rb" Casks/agentmux.rb \
+            "$RUNNER_TEMP/release/AgentMux-$ver-manifest.json" \
+            "$RUNNER_TEMP/release/AgentMux-$ver-envelope.json" \
+            "$RUNNER_TEMP/release/AgentMux-$ver-envelope.json.sig" \
+            update-keys.json
+          [ "$(pr_head)" = "$JUDGED" ] || { echo "::error::the pull request moved while it was being read"; exit 1; }
