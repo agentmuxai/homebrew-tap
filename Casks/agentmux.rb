@@ -5,7 +5,7 @@ cask "agentmux" do
   url "https://github.com/agentmuxai/agentmux/releases/download/v#{version}/AgentMux_#{version}_arm64.dmg"
   name "AgentMux"
   desc "Desktop workspace for AI coding agents"
-  homepage "https://agentmux.ai"
+  homepage "https://agentmux.ai/"
 
   livecheck do
     url :url
@@ -14,7 +14,7 @@ cask "agentmux" do
 
   auto_updates true
   depends_on arch: :arm64
-  depends_on macos: ">= :big_sur"
+  depends_on :macos
 
   app "AgentMux.app"
 

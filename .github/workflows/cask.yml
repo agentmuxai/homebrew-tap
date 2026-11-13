@@ -16,7 +16,9 @@ jobs:
       - uses: actions/checkout@v4
       - run: node --test scripts/render-cask.test.mjs
   cask:
-    runs-on: macos-14
+    runs-on: macos-latest
+    env:
+      HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - name: Plain ASCII, unix line ends
@@ -25,6 +27,13 @@ jobs:
       - name: Tap this checkout
         run: |
           brew tap agentmuxai/tap "$GITHUB_WORKSPACE"
+      - name: What a user sees before trusting the tap (informational)
+        continue-on-error: true
+        run: |
+          brew install --cask agentmuxai/tap/agentmux 2>&1 | tail -8
+          brew uninstall --cask agentmuxai/tap/agentmux 2>&1 | tail -2 || true
+      - name: Trust this tap (our own checkout)
+        run: brew trust agentmuxai/tap
       - name: Style
         run: brew style agentmuxai/tap/agentmux
       - name: Audit
