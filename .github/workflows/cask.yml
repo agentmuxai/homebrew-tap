@@ -13,14 +13,14 @@ jobs:
   scripts:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: node --test scripts/render-cask.test.mjs
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: node --test scripts/render-cask.test.mjs scripts/provenance.test.mjs
   cask:
     runs-on: macos-latest
     env:
       HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Plain ASCII, unix line ends
         run: |
           if grep -nP '[^\x0a\x20-\x7e]' Casks/agentmux.rb; then echo "non-ASCII or CR in the cask"; exit 1; fi
