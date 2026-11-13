@@ -17,6 +17,8 @@ jobs:
       - run: node --test scripts/render-cask.test.mjs
   cask:
     runs-on: macos-latest
+    env:
+      HOMEBREW_GITHUB_API_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - name: Plain ASCII, unix line ends
