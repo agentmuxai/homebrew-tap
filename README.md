@@ -22,6 +22,8 @@ An hourly workflow (`bump.yml`) reads the latest AgentMux release, checks that r
 
 - `scripts`: the renderer's and the provenance rule's tests.
 - `cask`: on a macOS runner, `brew style`, `brew audit --strict --online`, then install and uninstall.
-- `provenance`: runs from `main`, so a pull request cannot change the rule that judges it. A pull request that changes the cask must carry, byte for byte, what `main` renders from the signed release the cask names, at a version not lower than `main`'s. The cask is read as data and never run.
+- `provenance`: runs from `main`, so a pull request cannot change the rule that judges it, and it judges the commit it reports on. A pull request may change `Casks/agentmux.rb`, `.github/`, `scripts/`, `update-keys.json`, `README.md`, `.gitattributes` and `LICENSE`, and nothing else (a formula of the same name, another cask, `cmd/` and the migration files would change what `brew install` installs). A pull request that changes the cask must carry, byte for byte, what `main` renders from the signed release the cask names, at a version not lower than `main`'s. The cask is read as data and never run.
 
-`update-keys.json` is a copy of the update keys the app pins; when the app rotates its signing key, update it here in the same change. A change to the cask template itself changes the cask without a new release, so `provenance` refuses it by design: it needs a repository admin.
+`update-keys.json` is a copy of the update keys the app pins; when the app rotates its signing key, update it here in the same change.
+
+To change the cask template, use two pull requests: first the renderer change in `scripts/render-cask.mjs` (the cask is untouched, so `provenance` passes), then a pull request with the cask re-rendered by the new renderer, which `main`'s new renderer then proves.

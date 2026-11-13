@@ -6,7 +6,9 @@
 // lower than main's. The cask arrives as plain data (a file fetched from the pull request); it is never run.
 // This script, the renderer and update-keys.json all come from main, never from the pull request.
 //
-// Usage:  node scripts/provenance.mjs version <cask.rb>
+// Usage:  node scripts/provenance.mjs paths [--bump] <files.tsv>
+//             -> prints cask or nocask; exit 2 naming the path when a pull request changes one it may not
+//         node scripts/provenance.mjs version <cask.rb>
 //             -> prints the version the cask names (a strict x.y.z), exit 2 when it names anything else
 //         node scripts/provenance.mjs check <pr-cask.rb> <main-cask.rb> <manifest.json> <envelope.json> <envelope.json.sig> <update-keys.json>
 //             -> exit 0 when the pull request's cask is the render of the signed release and not older than main's
@@ -34,6 +36,49 @@ export function compareVersions(a, b) {
     return 0;
 }
 
+const CASK = "Casks/agentmux.rb";
+
+// What a pull request may change besides the cask. Anything else could change what
+// `brew install agentmuxai/tap/agentmux` installs (a formula of the same name wins over a cask, another
+// cask, cmd/, tap_migrations.json and the renames files), so it is refused by name.
+const ALLOWED = [/^\.github\//, /^scripts\//, /^update-keys\.json$/, /^README\.md$/, /^\.gitattributes$/, /^LICENSE$/];
+
+/**
+ * files: [{status, name, previous}] as the pull-request files API lists them. Returns "cask" when the pull
+ * request touches Casks/agentmux.rb (it then needs the byte-for-byte proof) or "nocask". Throws, naming the
+ * path, when it changes a path outside the allow-list, removes or renames the cask, or when bump is true
+ * (a bump-* branch) and it changes anything but the cask.
+ */
+export function classifyPaths(files, { bump = false } = {}) {
+    let touches = false;
+    for (const f of files) {
+        for (const p of [f.name, f.previous].filter(Boolean)) {
+            if (p === CASK) {
+                touches = true;
+                if (f.status === "removed" || (f.status === "renamed" && f.previous === CASK)) {
+                    throw new Error(`the cask is removed or renamed (${JSON.stringify(p)})`);
+                }
+            } else if (bump) {
+                throw new Error(`a bump branch may change nothing but ${CASK}, not ${JSON.stringify(p)}`);
+            } else if (!ALLOWED.some((re) => re.test(p))) {
+                throw new Error(`a pull request may not change ${JSON.stringify(p)}`);
+            }
+        }
+    }
+    return touches ? "cask" : "nocask";
+}
+
+/** Parse the tab-separated lines the workflow writes: status, filename, previous filename (maybe empty). */
+export function parseFiles(tsv) {
+    return String(tsv)
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+            const [status, name, previous] = line.split("\t");
+            return { status, name, previous: previous || "" };
+        });
+}
+
 /** Throws unless prCask is exactly the render of the signed release it names and is not older than mainCask. */
 export function checkProvenance({ prCask, mainCask, manifestBytes, envelopeBytes, sigText, keys }) {
     const prVersion = caskVersion(prCask);
@@ -55,6 +100,12 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
             process.stdout.write(`${caskVersion(readFileSync(args[0], "utf8"))}\n`);
             process.exit(0);
         }
+        if (cmd === "paths") {
+            const bump = args[0] === "--bump";
+            const file = bump ? args[1] : args[0];
+            process.stdout.write(`${classifyPaths(parseFiles(readFileSync(file, "utf8")), { bump })}\n`);
+            process.exit(0);
+        }
         if (cmd === "check") {
             const [pr, main, manifest, envelope, sig, keys] = args;
             if (!keys) throw new Error("usage: provenance.mjs check <pr-cask> <main-cask> <manifest> <envelope> <envelope.sig> <update-keys.json>");
@@ -69,7 +120,7 @@ if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.m
             console.log("provenance: the cask is the render of the signed release it names");
             process.exit(0);
         }
-        throw new Error("usage: provenance.mjs version <cask> | check <pr-cask> <main-cask> <manifest> <envelope> <sig> <keys>");
+        throw new Error("usage: provenance.mjs paths [--bump] <files.tsv> | version <cask> | check <pr-cask> <main-cask> <manifest> <envelope> <sig> <keys>");
     } catch (e) {
         console.error(`provenance: ${e.message}`);
         process.exit(2);

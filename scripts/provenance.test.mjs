@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { caskVersion, checkProvenance, compareVersions } from "./provenance.mjs";
+import { caskVersion, checkProvenance, classifyPaths, compareVersions, parseFiles } from "./provenance.mjs";
 import { renderCask } from "./render-cask.mjs";
 
 const SCRIPT = fileURLToPath(new URL("./provenance.mjs", import.meta.url));
@@ -119,4 +119,40 @@ test("the command line prints a version, and exits 2 with a reason on a bad cask
     const t = run(tampered);
     assert.equal(t.status, 2);
     assert.match(t.stderr, /not the render/);
+});
+
+const f = (name, status = "modified", previous = "") => ({ status, name, previous });
+
+test("a pull request may change the cask and the files that build and describe it, nothing else", () => {
+    assert.equal(classifyPaths([]), "nocask");
+    assert.equal(classifyPaths([f("README.md"), f("scripts/x.mjs", "added"), f(".github/workflows/cask.yml"), f("update-keys.json"), f(".gitattributes"), f("LICENSE", "added")]), "nocask");
+    assert.equal(classifyPaths([f("Casks/agentmux.rb"), f("README.md")]), "cask");
+});
+
+test("a formula of the same name, another cask, cmd/ and the migration files are refused by name", () => {
+    for (const p of ["Formula/agentmux.rb", "Casks/other.rb", "Casks/agentmux.rb.bak", "cmd/agentmux.rb", "tap_migrations.json", "formula_renames.json", "cask_renames.json", "Aliases/agentmux", "x/../Casks/agentmux.rb"]) {
+        assert.throws(() => classifyPaths([f(p, "added")]), (e) => e.message.includes(JSON.stringify(p)), p);
+        assert.throws(() => classifyPaths([f("Casks/agentmux.rb"), f(p, "added")]), /may not change/, p);
+    }
+});
+
+test("the cask removed, or renamed away, or renamed in from a disallowed path, is refused", () => {
+    assert.throws(() => classifyPaths([f("Casks/agentmux.rb", "removed")]), /removed or renamed/);
+    assert.throws(() => classifyPaths([f("Casks/new.rb", "renamed", "Casks/agentmux.rb")]), /may not change "Casks\/new\.rb"|removed or renamed/);
+    assert.throws(() => classifyPaths([f("Casks/agentmux.rb", "renamed", "Formula/agentmux.rb")]), /Formula\/agentmux\.rb/);
+});
+
+test("a bump branch may change nothing but the cask", () => {
+    assert.equal(classifyPaths([f("Casks/agentmux.rb")], { bump: true }), "cask");
+    assert.throws(() => classifyPaths([f("Casks/agentmux.rb"), f("README.md")], { bump: true }), /may change nothing but/);
+    assert.throws(() => classifyPaths([f(".github/workflows/bump.yml")], { bump: true }), /may change nothing but/);
+});
+
+test("the file list the workflow writes is parsed, and a name with odd characters is shown quoted", () => {
+    const files = parseFiles("modified\tREADME.md\t\nrenamed\tscripts/a.mjs\tscripts/b.mjs\n");
+    assert.deepEqual(files, [f("README.md"), f("scripts/a.mjs", "renamed", "scripts/b.mjs")]);
+    assert.throws(
+        () => classifyPaths([f("evil\u001b[31m::error::x", "added")]),
+        (e) => e.message.includes(String.raw`"evil\u001b[31m::error::x"`),
+    );
 });
