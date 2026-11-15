@@ -29,7 +29,9 @@ test("the cask carries the version and the dmg's hash from the manifest, and not
     assert.ok(cask.includes('url "https://github.com/agentmuxai/agentmux/releases/download/v#{version}/AgentMux_#{version}_arm64.dmg"'));
     assert.ok(cask.includes("auto_updates true") && cask.includes("depends_on arch: :arm64"));
     assert.ok(cask.includes('app "AgentMux.app"') && cask.endsWith("end\n"));
-    assert.ok(cask.includes('binary "#{staged_path}/agentmux"') && cask.includes("preflight do"), "the cask puts agentmux on PATH");
+    assert.ok(cask.includes('generated_script "agentmux"') && cask.includes('binary "agentmux"'), "the cask puts agentmux on PATH");
+    assert.ok(cask.includes("/usr/bin/open -a AgentMux"), "the script asks macOS to open the app");
+    assert.ok(!cask.includes("preflight"), "no preflight block: current Homebrew style refuses it");
     assert.ok(!cask.includes("agentmux-launcher"), "not a bare link to the bundle's launcher, which cannot find its runtime");
 });
 
