@@ -17,18 +17,6 @@ cask "agentmux" do
   depends_on :macos
 
   app "AgentMux.app"
-  # agentmux on PATH: a small script that asks macOS to open the app, as the code command does. A bare symlink
-  # to the bundle's launcher does not work (the launcher looks for its runtime next to the link), and
-  # running the launcher itself keeps the terminal busy for as long as the app runs.
-  preflight do
-    File.write "#{staged_path}/agentmux", <<~EOS
-      #!/bin/sh
-      exec /usr/bin/open -a "#{appdir}/AgentMux.app" --args "$@"
-    EOS
-    FileUtils.chmod "+x", "#{staged_path}/agentmux"
-  end
-
-  binary "#{staged_path}/agentmux"
 
   zap trash: "~/.agentmux"
 end
