@@ -14,8 +14,9 @@ name: provenance
 # from the signed release the cask names, at a version not lower than main's. A branch named bump-* may
 # change nothing but the cask.
 #
-# pull_request_target covers every pull request opened by a person. A pull request opened by bump.yml's
-# GITHUB_TOKEN starts no workflow, so bump.yml dispatches this one (the pr input) on the bump branch.
+# pull_request_target covers every pull request opened by a person or an agent (scripts/bump.sh makes the
+# cask; the pull request is an ordinary one). A pull request opened with a workflow's GITHUB_TOKEN starts no
+# workflow; nothing does that here, and the pr input below is for starting this one by hand on a branch.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened]
