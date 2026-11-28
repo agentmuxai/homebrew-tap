@@ -1,6 +1,6 @@
 cask "agentmux" do
-  version "0.60.43"
-  sha256 "33e1a3cd0304f05e00eb92cf8085d3f074767ed25165e07cc41ff5aec16fb77a"
+  version "0.60.44"
+  sha256 "c58d692fbf6e763ce28619c87055c2a72f585656eb87778aae64e1c7f840890a"
 
   url "https://github.com/agentmuxai/agentmux/releases/download/v#{version}/AgentMux_#{version}_arm64.dmg"
   name "AgentMux"
